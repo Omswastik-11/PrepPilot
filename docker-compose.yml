@@ -1,0 +1,61 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: preppilot-db
+    environment:
+      POSTGRES_USER: preppilot
+      POSTGRES_PASSWORD: preppilot_dev_password
+      POSTGRES_DB: preppilot
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U preppilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: preppilot-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://preppilot:preppilot_dev_password@db:5432/preppilot
+      JWT_SECRET_KEY: dev-secret-key-change-in-production
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: gemini-3.6-flash
+      HF_TOKEN: ${HF_TOKEN}
+      HF_MODEL: mistralai/Mistral-7B-Instruct-v0.2
+      AI_PRIMARY_PROVIDER: gemini
+      AI_FALLBACK_PROVIDER: huggingface
+      ENVIRONMENT: development
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/code/app  # Hot reload in dev
+      - ./backend/alembic:/code/alembic # Ensure generated migrations are synced
+      - ./backend/tests:/code/tests # Mount tests
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: preppilot-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
