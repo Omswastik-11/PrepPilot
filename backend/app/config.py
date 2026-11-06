@@ -36,6 +36,11 @@ class Settings(BaseSettings):
                 v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
             if "sslmode=" in v:
                 v = v.replace("sslmode=", "ssl=")
+            # Remove channel_binding parameter (unsupported by asyncpg connection args)
+            if "channel_binding=" in v:
+                import re
+                v = re.sub(r"([?&])channel_binding=[^&]+(&?)", r"\1", v)
+                v = v.rstrip("&?").replace("?&", "?")
         return v
 
     # CORS

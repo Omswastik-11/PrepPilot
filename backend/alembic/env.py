@@ -37,7 +37,9 @@ settings = get_settings()
 config = context.config
 
 # Override sqlalchemy.url in alembic.ini with the one from our settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Direct connection is required for DDL migrations (bypassing PgBouncer pooler if present)
+db_url = settings.DATABASE_URL.replace("-pooler.", ".")
+config.set_main_option("sqlalchemy.url", db_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
