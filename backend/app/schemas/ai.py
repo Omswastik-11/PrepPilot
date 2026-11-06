@@ -13,6 +13,10 @@ class GeneratedQuestion(BaseModel):
     question_text: str = Field(..., description="The question text")
     time_limit_seconds: int = Field(..., ge=60, le=300, description="Recommended time limit for answering")
     ideal_answer_hints: list[str] = Field(..., description="Bullet points of what a good answer includes")
+    topic: str | None = Field(
+        None,
+        description="A concise 1-3 word title or competency tag describing the specific topic tested (e.g. 'Conflict Resolution', 'Dynamic Programming', 'Scalability', 'System Design')"
+    )
 
 
 class EvaluationResult(BaseModel):

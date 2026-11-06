@@ -85,7 +85,8 @@ Return ONLY a valid JSON object with a single key "questions" containing an arra
 Each object in the array must have:
 - "question_text" (string)
 - "time_limit_seconds" (integer, 60-300)
-- "ideal_answer_hints" (array of strings)"""
+- "ideal_answer_hints" (array of strings)
+- "topic" (concise 1-3 word topic tag string, e.g. "Conflict Resolution", "System Architecture")"""
 
         response_text = await self._make_request(system_instruction, prompt, json_mode=True)
         data = await self._parse_json_response(response_text)
@@ -136,7 +137,8 @@ Return ONLY a valid JSON object containing exactly ONE question. Do not include 
 The object must have:
 - "question_text" (string)
 - "time_limit_seconds" (integer, 60-300)
-- "ideal_answer_hints" (array of strings)"""
+- "ideal_answer_hints" (array of strings)
+- "topic" (concise 1-3 word topic tag string, e.g. "Conflict Resolution", "System Architecture")"""
 
         response_text = await self._make_request(system_instruction, prompt, json_mode=True)
         data = await self._parse_json_response(response_text)

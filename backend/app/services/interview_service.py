@@ -85,9 +85,11 @@ class InterviewService:
             )
             q_text = generated_question.question_text
             ideal_answer = "\n".join(generated_question.ideal_answer_hints)
+            q_topic = getattr(generated_question, "topic", None) or planned_q.topic
         else:
             q_text = planned_q.question_text
             ideal_answer = planned_q.expected_key_points
+            q_topic = planned_q.topic
             
         q = Question(
             interview_id=interview.id,
@@ -96,7 +98,7 @@ class InterviewService:
             time_limit_seconds=120,
             ideal_answer=ideal_answer,
             domain=planned_q.domain,
-            topic=planned_q.topic,
+            topic=q_topic,
             difficulty=planned_q.difficulty,
             context_used=planned_q.context_used,
             adaptation_reason=planned_q.adaptation_reason
@@ -203,9 +205,11 @@ class InterviewService:
                 )
                 q_text = generated_question.question_text
                 ideal_answer = "\n".join(generated_question.ideal_answer_hints)
+                q_topic = getattr(generated_question, "topic", None) or planned_q.topic
             else:
                 q_text = planned_q.question_text
                 ideal_answer = planned_q.expected_key_points
+                q_topic = planned_q.topic
                 
             next_q = Question(
                 interview_id=interview_id,
@@ -214,7 +218,7 @@ class InterviewService:
                 time_limit_seconds=120,
                 ideal_answer=ideal_answer,
                 domain=planned_q.domain,
-                topic=planned_q.topic,
+                topic=q_topic,
                 difficulty=planned_q.difficulty,
                 context_used=planned_q.context_used,
                 adaptation_reason=planned_q.adaptation_reason
