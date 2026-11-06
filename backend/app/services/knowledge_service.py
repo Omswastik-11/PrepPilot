@@ -47,21 +47,23 @@ class KnowledgeService:
             difficulty=question_data.difficulty,
             question_text=question_data.question_text,
             expected_key_points=question_data.expected_key_points,
-            embedding=embedding
+            embedding=embedding,
+            status="accepted"
         )
 
-    async def ingest_url(self, url: str, domain: str, topic: str) -> List[QuestionBank]:
+    async def ingest_url(self, url: str, domain: str, topic: str, company: Optional[str] = None) -> List[QuestionBank]:
         """
         Fetches a URL, extracts text, and generates question bank entries using AI.
         """
         import httpx
         from app.services.ai.service import AIService
+        from app.utils.text_extraction import strip_html
         
         try:
             async with httpx.AsyncClient(follow_redirects=True) as client:
                 resp = await client.get(url, timeout=10.0)
                 resp.raise_for_status()
-                text_content = resp.text[:10000] # simple truncation for MVP
+                text_content = strip_html(resp.text)[:10000] # simple truncation for MVP
         except Exception as e:
             logger.error(f"Failed to fetch URL {url}: {e}")
             raise ValueError(f"Could not fetch URL: {e}")
@@ -75,15 +77,14 @@ class KnowledgeService:
         
         # Generate questions
         ai_service = AIService()
-        prompt = f"Based on the following content about {domain} / {topic}, generate 3 interview questions.\n\nContent: {text_content}"
         
         try:
-            # Ideally we'd use a structured generation method here
-            generated = await ai_service.generate_questions(
-                interview_type=domain,
-                difficulty="Mid",
-                num_questions=3,
-                company=None
+            generated = await ai_service.generate_questions_from_context(
+                context=text_content,
+                domain=domain,
+                topic=topic,
+                company=company,
+                num_questions=3
             )
         except Exception as e:
             logger.error(f"AI failed to generate questions from URL: {e}")

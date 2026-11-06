@@ -139,6 +139,28 @@ class AuthService:
 
         return self._create_token_pair(str(user.id))
 
+    async def google_login(self, email: str, name: str) -> dict:
+        """
+        Authenticate or create a user via Google OAuth.
+        """
+        user = await self.user_repo.get_by_email(email)
+        
+        if not user:
+            # Create a new user for Google Sign-In
+            user = User(
+                email=email,
+                name=name,
+                is_guest=False,
+                # No password hash for OAuth users
+            )
+            self.user_repo.add(user)
+            await self.db.commit()
+            await self.db.refresh(user)
+        elif not user.is_active:
+            raise AuthenticationError("Account is deactivated")
+            
+        return self._create_token_pair(str(user.id))
+
     async def guest_login(self) -> tuple[User, dict]:
         """
         Create a guest user and return the user + token pair.

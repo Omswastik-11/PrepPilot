@@ -10,6 +10,9 @@ class CandidateProfile(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "candidate_profiles"
 
     user_id = Column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    name = Column(String(100), nullable=True)
+    institute = Column(String(200), nullable=True)
+    qualification = Column(String(200), nullable=True)
     target_roles = Column(ARRAY(String), nullable=True)
     target_companies = Column(ARRAY(String), nullable=True)
     skills = Column(ARRAY(String), nullable=True)
@@ -17,6 +20,7 @@ class CandidateProfile(Base, UUIDMixin, TimestampMixin):
     education = Column(String(500), nullable=True)
     preferred_interview_types = Column(ARRAY(String), nullable=True)
     bio = Column(Text, nullable=True)
+    preferred_tone = Column(String(50), default="professional", server_default="professional", nullable=False)
 
     user = relationship("User", backref="candidate_profile")
 

@@ -25,6 +25,7 @@ class QuestionBank(Base, UUIDMixin, TimestampMixin):
     domain = Column(String(100), nullable=False)
     topic = Column(String(100), nullable=False)
     difficulty = Column(String(50), nullable=False)
+    company = Column(String(100), nullable=True, index=True)
     question_text = Column(Text, nullable=False)
     expected_key_points = Column(Text, nullable=True)
     embedding = Column(Vector(settings.EMBEDDING_DIMENSION), nullable=True)

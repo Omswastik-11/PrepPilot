@@ -29,3 +29,20 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ token: null, user: null });
   },
 }));
+
+export interface ToastState {
+  message: string | null;
+  type: 'success' | 'error' | 'info';
+  show: (message: string, type?: 'success' | 'error' | 'info') => void;
+  hide: () => void;
+}
+
+export const useToastStore = create<ToastState>((set) => ({
+  message: null,
+  type: 'info',
+  show: (message, type = 'info') => {
+    set({ message, type });
+    setTimeout(() => set({ message: null }), 4000);
+  },
+  hide: () => set({ message: null }),
+}));

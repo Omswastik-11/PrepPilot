@@ -47,10 +47,6 @@ async def lifespan(app: FastAPI):
     We keep create_all() here for rapid development — it creates tables
     that don't exist but won't modify existing ones.
     """
-    async with engine.begin() as conn:
-        from sqlalchemy import text
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        await conn.run_sync(Base.metadata.create_all)
     print(f"🚀 {settings.APP_NAME} started in {settings.ENVIRONMENT} mode")
 
     yield
@@ -133,10 +129,7 @@ async def ai_service_handler(request: Request, exc: AIServiceError) -> JSONRespo
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=[o.strip() for o in settings.ALLOWED_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -147,12 +140,13 @@ app.add_middleware(
 # Route Registration
 # ---------------------------------------------------------------------------
 
-from app.routes import auth, interviews, candidate, knowledge  # noqa: E402
+from app.routes import auth, interviews, candidate, knowledge, analytics  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
 app.include_router(interviews.router, prefix="/api/interviews", tags=["Interviews"])
 app.include_router(candidate.router)
 app.include_router(knowledge.router)
+app.include_router(analytics.router)
 
 
 # ---------------------------------------------------------------------------
@@ -172,8 +166,16 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check for monitoring."""
+    from app.database import async_session
+    from sqlalchemy import text
+    try:
+        async with async_session() as session:
+            await session.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        db_status = "unavailable"
     return {
-        "status": "healthy",
-        "database": "connected",  # TODO: Actually check DB connection (Phase 9)
+        "status": "healthy" if db_status == "connected" else "degraded",
+        "database": db_status,
         "version": "0.2.0",
     }

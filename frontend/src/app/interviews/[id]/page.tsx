@@ -1,12 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Send, User, ChevronLeft } from "lucide-react";
+import { Send, User, ChevronLeft, Maximize2, Minimize2, CheckCircle2 } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { useAuthStore } from "@/lib/store";
 import { useRouter, useParams } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 
 interface Answer {
   id: string;
@@ -22,6 +24,8 @@ interface Question {
   id: string;
   question_text: string;
   question_order: number;
+  difficulty?: string;
+  topic?: string;
   answer?: Answer | null;
 }
 
@@ -29,9 +33,21 @@ interface Interview {
   id: string;
   interview_type: string;
   status: string;
-  num_questions: number;
+  num_questions: number | null;
+  duration_minutes: number | null;
+  started_at: string | null;
   questions: Question[];
+  total_score: number | null;
 }
+
+const getGrade = (score: number) => {
+  if (score >= 9) return { grade: 'A+', color: 'text-emerald-500' };
+  if (score >= 8) return { grade: 'A', color: 'text-emerald-500' };
+  if (score >= 7) return { grade: 'B', color: 'text-green-500' };
+  if (score >= 5) return { grade: 'C', color: 'text-yellow-500' };
+  if (score >= 3) return { grade: 'D', color: 'text-orange-500' };
+  return { grade: 'F', color: 'text-red-500' };
+};
 
 export default function InterviewChat() {
   const { user } = useAuthStore();
@@ -44,8 +60,20 @@ export default function InterviewChat() {
   const [error, setError] = useState("");
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedIdeal, setExpandedIdeal] = useState<Record<string, boolean>>({});
   const [questionStartTime, setQuestionStartTime] = useState<number>(0);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [showEndModal, setShowEndModal] = useState(false);
+  const [isTimeUp, setIsTimeUp] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const formatTime = (ms: number) => {
+    const totalSeconds = Math.floor(ms / 1000);
+    const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const s = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
 
   const fetchInterview = async () => {
     try {
@@ -73,6 +101,25 @@ export default function InterviewChat() {
       fetchInterview();
     }
   }, [user, interviewId, router]);
+
+  useEffect(() => {
+    if (interview && interview.status === "in_progress" && interview.duration_minutes && interview.started_at) {
+      const interval = setInterval(() => {
+        const dateStr = interview.started_at!.endsWith('Z') ? interview.started_at! : interview.started_at + 'Z';
+        const start = new Date(dateStr).getTime();
+        const durationMs = interview.duration_minutes! * 60 * 1000;
+        const now = Date.now();
+        const remaining = Math.max(0, start + durationMs - now);
+        setTimeLeft(remaining);
+        
+        if (remaining === 0 && !isTimeUp) {
+          setIsTimeUp(true);
+          setShowEndModal(true);
+        }
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [interview, isTimeUp]);
 
   useEffect(() => {
     // Auto-scroll to bottom
@@ -139,15 +186,28 @@ export default function InterviewChat() {
       setError(err.message || "Failed to submit answer");
     } finally {
       setSubmitting(false);
+      setIsExpanded(false);
     }
   };
 
   const handleComplete = async () => {
     try {
       await fetchApi(`/api/interviews/${interview.id}/complete`, { method: "POST" });
+      setShowEndModal(false);
       await fetchInterview();
     } catch (err: any) {
       setError(err.message || "Failed to complete interview");
+      setShowEndModal(false);
+    }
+  };
+
+  const handleTerminate = async () => {
+    try {
+      await fetchApi(`/api/interviews/${interview.id}/abandon`, { method: "POST" });
+      router.push("/");
+    } catch (err: any) {
+      setError(err.message || "Failed to terminate interview");
+      setShowEndModal(false);
     }
   };
 
@@ -163,8 +223,25 @@ export default function InterviewChat() {
             </Link>
             <div className="font-medium capitalize">{interview.interview_type} Interview</div>
           </div>
-          <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1 bg-[var(--muted)] rounded-full text-[var(--muted-foreground)]">
-            {interview.status.replace("_", " ")}
+          <div className="flex items-center gap-3">
+            {timeLeft !== null && interview.status === "in_progress" && (
+              <div className={`font-mono text-sm font-semibold px-3 py-1 rounded-full ${
+                timeLeft < 60000 ? "bg-red-500/10 text-red-500" : timeLeft < 300000 ? "bg-yellow-500/10 text-yellow-600" : "bg-green-500/10 text-green-600"
+              }`}>
+                {formatTime(timeLeft)}
+              </div>
+            )}
+            {interview.status === "in_progress" && (
+              <button 
+                onClick={() => setShowEndModal(true)}
+                className="text-xs font-semibold px-3 py-1.5 bg-[var(--muted)] hover:bg-red-500/10 hover:text-red-500 transition-colors rounded-lg text-[var(--muted-foreground)]"
+              >
+                End Interview
+              </button>
+            )}
+            <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1 bg-[var(--sidebar-background)] border border-[var(--border)] rounded-full text-[var(--muted-foreground)]">
+              {interview.status.replace("_", " ")}
+            </div>
           </div>
         </header>
 
@@ -179,37 +256,49 @@ export default function InterviewChat() {
             <div key={q.id} className="space-y-6">
               {/* Question Bubble */}
               {((q.answer) || (activeQuestion?.id === q.id)) && (
-                <div className="flex gap-4">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="flex gap-4">
                   <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0 mt-1">
                     <span className="text-white text-xs font-bold">AI</span>
                   </div>
                   <div className="flex-1 space-y-1">
-                    <p className="font-semibold text-sm">PrepPilot <span className="text-[var(--muted-foreground)] font-normal text-xs ml-2">Question {q.question_order} of {interview.num_questions}</span></p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm">PrepPilot <span className="text-[var(--muted-foreground)] font-normal text-xs ml-2">Question {q.question_order} of {interview.num_questions}</span></p>
+                      {q.difficulty && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 font-medium">
+                          {q.difficulty}
+                        </span>
+                      )}
+                      {q.topic && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-500 font-medium">
+                          {q.topic}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[var(--foreground)] leading-relaxed pt-1">
-                      {q.question_text}
+                      <MarkdownRenderer content={q.question_text} />
                     </div>
                   </div>
-                </div>
+                </motion.div>
               )}
 
               {/* Answer Bubble */}
               {q.answer && (
-                <div className="flex gap-4 flex-row-reverse">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, delay: 0.1 }} className="flex gap-4 flex-row-reverse">
                   <div className="h-8 w-8 rounded-full bg-[var(--muted)] flex items-center justify-center shrink-0 mt-1">
                     <User className="h-4 w-4 text-[var(--muted-foreground)]" />
                   </div>
                   <div className="flex-1 flex flex-col items-end space-y-1">
                     <p className="font-semibold text-sm">You <span className="text-[var(--muted-foreground)] font-normal text-xs mr-2">{q.answer.time_taken_seconds}s</span></p>
                     <div className="bg-[var(--muted)] rounded-2xl rounded-tr-sm px-4 py-3 text-[var(--foreground)] leading-relaxed max-w-[85%] whitespace-pre-wrap">
-                      {q.answer.user_answer}
+                      <MarkdownRenderer content={q.answer.user_answer} />
                     </div>
                   </div>
-                </div>
+                </motion.div>
               )}
 
               {/* Evaluation Card */}
               {q.answer && (
-                <div className="flex gap-4">
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.2 }} className="flex gap-4">
                   <div className="h-8 w-8 shrink-0"></div>
                   <div className="flex-1 bg-[var(--sidebar-background)] border border-[var(--border)] rounded-2xl p-5 space-y-4">
                     <div className="flex items-center justify-between">
@@ -218,14 +307,18 @@ export default function InterviewChat() {
                         {q.answer.score}/10
                       </div>
                     </div>
-                    <p className="text-sm leading-relaxed">{q.answer.feedback}</p>
+                    <div className="text-sm leading-relaxed">
+                      <MarkdownRenderer content={q.answer.feedback} />
+                    </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                       {q.answer.strengths?.length > 0 && (
                         <div className="space-y-2">
                           <h5 className="text-xs font-semibold text-green-600 flex items-center gap-1">Strengths</h5>
                           <ul className="text-sm space-y-1 text-[var(--muted-foreground)] list-disc pl-4">
-                            {q.answer.strengths.map((s, i) => <li key={i}>{s}</li>)}
+                            {q.answer.strengths.map((s, i) => (
+                              <li key={i}><MarkdownRenderer content={s} inline /></li>
+                            ))}
                           </ul>
                         </div>
                       )}
@@ -233,13 +326,29 @@ export default function InterviewChat() {
                         <div className="space-y-2">
                           <h5 className="text-xs font-semibold text-red-600 flex items-center gap-1">Areas to Improve</h5>
                           <ul className="text-sm space-y-1 text-[var(--muted-foreground)] list-disc pl-4">
-                            {q.answer.weaknesses.map((w, i) => <li key={i}>{w}</li>)}
+                            {q.answer.weaknesses.map((w, i) => (
+                              <li key={i}><MarkdownRenderer content={w} inline /></li>
+                            ))}
                           </ul>
                         </div>
                       )}
                     </div>
+
+                    <button 
+                      onClick={() => setExpandedIdeal(prev => ({ ...prev, [q.id]: !prev[q.id] }))} 
+                      className="text-xs text-blue-500 hover:underline mt-4 font-medium"
+                    >
+                      {expandedIdeal[q.id] ? "Hide" : "Show"} Ideal Approach Hints
+                    </button>
+                    
+                    {expandedIdeal[q.id] && (
+                      <div className="text-sm mt-2 p-3 bg-[var(--muted)]/50 rounded-lg border border-[var(--border)] leading-relaxed">
+                        <strong className="block text-xs uppercase tracking-wider text-[var(--muted-foreground)] mb-1">Based on feedback:</strong>
+                        <MarkdownRenderer content={q.answer.feedback} />
+                      </div>
+                    )}
                   </div>
-                </div>
+                </motion.div>
               )}
             </div>
           ))}
@@ -272,15 +381,76 @@ export default function InterviewChat() {
           )}
 
           {interview.status === "completed" && (
-            <div className="flex flex-col items-center justify-center pt-12 space-y-4">
-              <div className="h-16 w-16 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center text-3xl mb-2">🎉</div>
-              <h2 className="text-2xl font-bold">Interview Complete!</h2>
-              <p className="text-[var(--muted-foreground)]">You have successfully finished all questions.</p>
-              <Link href="/">
-                <button className="mt-4 px-6 py-3 bg-[var(--sidebar-background)] border border-[var(--border)] hover:bg-[var(--muted)] font-semibold rounded-xl transition-colors">
-                  Return to Dashboard
-                </button>
-              </Link>
+            <div className="flex flex-col items-center justify-center pt-8 pb-12 space-y-8">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.5 }}>
+                <div className="flex items-center gap-2 text-xs text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20 shadow-sm">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Your strengths & areas for improvement have been updated
+                </div>
+              </motion.div>
+              
+              <div className="text-center space-y-2">
+                <div className="h-20 w-20 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center text-4xl mx-auto mb-4">🏆</div>
+                <h2 className="text-3xl font-bold">Interview Complete</h2>
+                <p className="text-[var(--muted-foreground)]">Here is your overall performance verdict.</p>
+              </div>
+
+              <div className="w-full max-w-2xl bg-[var(--sidebar-background)] border border-[var(--border)] rounded-2xl p-8 shadow-xl space-y-8">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-8 border-b border-[var(--border)]">
+                  <div className="space-y-1 text-center md:text-left">
+                    <div className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Overall Score</div>
+                    <div className={`text-6xl font-black ${interview.total_score! >= 8 ? 'text-green-500' : interview.total_score! >= 5 ? 'text-yellow-500' : 'text-red-500'}`}>
+                      {interview.total_score || 0}<span className="text-2xl text-[var(--muted-foreground)]">/10</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-1 text-center md:text-right">
+                    <div className="text-sm font-semibold text-[var(--muted-foreground)] uppercase tracking-wider">Grade</div>
+                    <div className={`text-6xl font-black ${getGrade(interview.total_score || 0).color}`}>
+                      {getGrade(interview.total_score || 0).grade}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Question Breakdown</h3>
+                  <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)]">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-[var(--muted)] text-[var(--muted-foreground)] text-xs uppercase font-semibold">
+                        <tr>
+                          <th className="px-4 py-3 w-12 text-center">#</th>
+                          <th className="px-4 py-3">Topic</th>
+                          <th className="px-4 py-3 w-24 text-right">Score</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {interview.questions.map((q) => (
+                          <tr key={q.id} className="hover:bg-[var(--muted)]/50 transition-colors">
+                            <td className="px-4 py-3 text-center font-medium text-[var(--muted-foreground)]">{q.question_order}</td>
+                            <td className="px-4 py-3 font-medium truncate max-w-xs" title={q.topic}>{q.topic || 'General'}</td>
+                            <td className={`px-4 py-3 text-right font-bold ${q.answer?.score && q.answer.score >= 8 ? 'text-green-500' : q.answer?.score && q.answer.score >= 5 ? 'text-yellow-500' : 'text-red-500'}`}>
+                              {q.answer?.score ? `${q.answer.score}/10` : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                <div className="flex gap-4 justify-center pt-4">
+                  <Link href="/profile">
+                    <button className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20">
+                      View Profile Analytics
+                    </button>
+                  </Link>
+                  <Link href="/">
+                    <button className="px-6 py-3 bg-[var(--muted)] hover:bg-[var(--border)] font-semibold rounded-xl transition-colors">
+                      Start Another
+                    </button>
+                  </Link>
+                </div>
+              </div>
             </div>
           )}
 
@@ -289,34 +459,116 @@ export default function InterviewChat() {
 
         {/* Input Area */}
         {!isComplete && (
-          <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent pt-10">
-            <div className="max-w-4xl mx-auto w-full">
-              <div className={`relative flex items-center bg-[var(--sidebar-background)] rounded-2xl border border-[var(--border)] focus-within:ring-1 focus-within:ring-[var(--border)] transition-shadow shadow-lg ${submitting ? 'opacity-50' : ''}`}>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSubmit();
-                    }
-                  }}
-                  placeholder="Type your answer here..."
-                  className="w-full bg-transparent resize-none py-4 pl-4 pr-16 focus:outline-none max-h-48 min-h-[56px] text-sm"
-                  rows={2}
-                  disabled={submitting}
-                />
+          <>
+            {isExpanded && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setIsExpanded(false)} />
+            )}
+            <div className={isExpanded 
+              ? "fixed inset-4 md:inset-10 lg:inset-x-32 lg:inset-y-16 z-50 bg-[var(--sidebar-background)] border border-[var(--border)] rounded-2xl shadow-2xl flex flex-col"
+              : "absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent pt-10"}>
+              
+              <div className={isExpanded ? "flex-1 flex flex-col h-full relative" : "max-w-4xl mx-auto w-full"}>
+                {isExpanded && (
+                  <div className="flex justify-between items-center p-4 border-b border-[var(--border)]">
+                    <h3 className="font-semibold text-[var(--foreground)]">Write Answer</h3>
+                    <button onClick={() => setIsExpanded(false)} className="p-2 text-[var(--muted-foreground)] hover:bg-[var(--muted)] rounded-lg transition-colors">
+                      <Minimize2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+                
+                <div className={`relative flex flex-col items-center bg-[var(--sidebar-background)] ${!isExpanded ? 'rounded-2xl border border-[var(--border)] focus-within:ring-1 focus-within:ring-[var(--border)] shadow-lg' : 'flex-1'} ${submitting ? 'opacity-50' : ''} transition-shadow`}>
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSubmit();
+                      }
+                    }}
+                    placeholder="Type your answer here... (Press Shift + Enter for new line)"
+                    className={`w-full bg-transparent resize-none p-4 focus:outline-none text-sm text-[var(--foreground)] ${isExpanded ? 'flex-1 min-h-0' : 'max-h-48 min-h-[56px] pr-24'}`}
+                    rows={isExpanded ? undefined : 2}
+                    disabled={submitting}
+                  />
+                  
+                  <div className={`flex items-center gap-2 ${isExpanded ? 'p-4 border-t border-[var(--border)] w-full justify-between' : 'absolute right-3 bottom-3'}`}>
+                    {isExpanded && (
+                      <div className="text-xs text-[var(--muted-foreground)] hidden sm:block">
+                        AI responses may be inaccurate. Press Shift + Enter for a new line.
+                      </div>
+                    )}
+                    
+                    <div className="flex items-center gap-2 ml-auto">
+                      {!isExpanded && (
+                        <button 
+                          onClick={() => setIsExpanded(true)}
+                          className="p-2 rounded-xl text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
+                          title="Expand input"
+                        >
+                          <Maximize2 className="h-4 w-4" />
+                        </button>
+                      )}
+                      <button 
+                        onClick={handleSubmit}
+                        className="p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:hover:bg-blue-600 flex items-center gap-2" 
+                        disabled={!input.trim() || submitting}
+                      >
+                        {isExpanded && <span className="text-sm font-medium px-1">Submit</span>}
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+                {!isExpanded && (
+                  <div className="text-center mt-2 text-xs text-[var(--muted-foreground)] font-medium">
+                    AI responses may be inaccurate. Press Shift + Enter for a new line.
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* End Interview Modal */}
+        {showEndModal && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4" onClick={(e) => { if (!isTimeUp && e.target === e.currentTarget) setShowEndModal(false); }}>
+            <div className="bg-[var(--sidebar-background)] border border-[var(--border)] p-6 rounded-2xl max-w-md w-full shadow-2xl space-y-6 animate-in zoom-in-95 duration-200">
+              <div>
+                <h3 className="text-xl font-bold">{isTimeUp ? "Time's Up!" : "End Interview"}</h3>
+                <p className="text-[var(--muted-foreground)] mt-2">
+                  What would you like to do with this interview?
+                </p>
+              </div>
+              
+              <div className="space-y-3">
                 <button 
-                  onClick={handleSubmit}
-                  className="absolute right-3 p-2.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:hover:bg-blue-600" 
-                  disabled={!input.trim() || submitting}
+                  onClick={() => handleComplete()}
+                  className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium transition-colors text-left flex justify-between items-center"
                 >
-                  <Send className="h-4 w-4" />
+                  <span>Finish & Generate Verdict</span>
+                  <span className="text-blue-200 text-xs font-normal">Save progress</span>
+                </button>
+                
+                <button 
+                  onClick={handleTerminate}
+                  className="w-full px-4 py-3 bg-[var(--muted)] hover:bg-red-500/10 hover:text-red-500 rounded-xl font-medium transition-colors text-left flex justify-between items-center"
+                >
+                  <span>Terminate</span>
+                  <span className="text-[var(--muted-foreground)] text-xs font-normal group-hover:text-red-400">No data saved</span>
                 </button>
               </div>
-              <div className="text-center mt-2 text-xs text-[var(--muted-foreground)] font-medium">
-                AI responses may be inaccurate. Press Shift + Enter for a new line.
-              </div>
+              
+              {!isTimeUp && (
+                <button 
+                  onClick={() => setShowEndModal(false)}
+                  className="w-full py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+                >
+                  Cancel, return to interview
+                </button>
+              )}
             </div>
           </div>
         )}

@@ -13,15 +13,31 @@ export default function Home() {
 
   const [type, setType] = useState("technical");
   const [difficulty, setDifficulty] = useState("medium");
-  const [numQuestions, setNumQuestions] = useState(5);
+  const [durationMinutes, setDurationMinutes] = useState(40);
   const [company, setCompany] = useState("");
+  const [targetRole, setTargetRole] = useState("");
+  const [profileRoles, setProfileRoles] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user) {
       router.push("/login");
+      return;
     }
+    
+    async function fetchProfile() {
+      try {
+        const profile = await fetchApi("/api/candidate/profiles/me");
+        if (profile && profile.target_roles && profile.target_roles.length > 0) {
+          setProfileRoles(profile.target_roles);
+          setTargetRole(profile.target_roles[0]);
+        }
+      } catch (err) {
+        // Profile might not exist yet, that's fine
+      }
+    }
+    fetchProfile();
   }, [user, router]);
 
   if (!user) {
@@ -38,8 +54,9 @@ export default function Home() {
         body: JSON.stringify({
           interview_type: type,
           difficulty,
-          num_questions: numQuestions,
+          duration_minutes: durationMinutes,
           company: company.trim() || null,
+          role: targetRole.trim() || null,
         }),
       });
       // Redirect to the newly created interview chat interface
@@ -110,21 +127,29 @@ export default function Home() {
             </div>
 
             <div className="space-y-3">
-              <label className="text-sm font-semibold flex justify-between">
-                <span>Number of Questions</span>
-                <span className="text-blue-600 bg-blue-600/10 px-2 py-0.5 rounded text-xs">{numQuestions}</span>
-              </label>
-              <input 
-                type="range" 
-                min="3" 
-                max="10" 
-                value={numQuestions}
-                onChange={(e) => setNumQuestions(parseInt(e.target.value))}
-                className="w-full accent-blue-600"
-              />
-              <div className="flex justify-between text-xs text-[var(--muted-foreground)]">
-                <span>Short (3)</span>
-                <span>Long (10)</span>
+              <label className="text-sm font-semibold">Interview Duration</label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {[
+                  { value: 20, label: "20 min", desc: "~4-6 questions" },
+                  { value: 40, label: "40 min", desc: "~8-12 questions" },
+                  { value: 60, label: "60 min", desc: "~15-20 questions" },
+                ].map((d) => (
+                  <button
+                    key={d.value}
+                    type="button"
+                    onClick={() => setDurationMinutes(d.value)}
+                    className={`py-3 px-4 rounded-xl border flex flex-col items-center justify-center transition-all ${
+                      durationMinutes === d.value 
+                      ? "border-blue-600 bg-blue-600/10 text-blue-600" 
+                      : "border-[var(--border)] hover:bg-[var(--muted)] text-[var(--foreground)]"
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{d.label}</span>
+                    <span className={`text-xs mt-1 ${durationMinutes === d.value ? "text-blue-500/80" : "text-[var(--muted-foreground)]"}`}>
+                      {d.desc}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -139,6 +164,42 @@ export default function Home() {
               />
               <p className="text-xs text-[var(--muted-foreground)]">
                 The AI will tailor the questions towards this company's interview style if provided.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-sm font-semibold">Target Role (Optional)</label>
+              {profileRoles.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  <select 
+                    value={targetRole}
+                    onChange={(e) => setTargetRole(e.target.value)}
+                    className="w-full px-4 py-3 bg-[var(--background)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow appearance-none"
+                  >
+                    <option value="">Select a role or type custom below...</option>
+                    {profileRoles.map(role => (
+                      <option key={role} value={role}>{role}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="text"
+                    value={targetRole}
+                    onChange={(e) => setTargetRole(e.target.value)}
+                    placeholder="Or type a custom role (e.g. Frontend Engineer)"
+                    className="w-full px-4 py-3 bg-[var(--background)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                  />
+                </div>
+              ) : (
+                <input
+                  type="text"
+                  value={targetRole}
+                  onChange={(e) => setTargetRole(e.target.value)}
+                  placeholder="e.g. Software Engineer, Data Scientist"
+                  className="w-full px-4 py-3 bg-[var(--background)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
+                />
+              )}
+              <p className="text-xs text-[var(--muted-foreground)]">
+                Tailor the interview focus to a specific job title.
               </p>
             </div>
 

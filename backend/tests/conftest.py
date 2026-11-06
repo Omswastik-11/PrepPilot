@@ -21,6 +21,11 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
+import os
+os.environ["GEMINI_API_KEY"] = "test-key"
+os.environ["HF_TOKEN"] = "test-token"
+os.environ["EMBEDDING_DIMENSION"] = "768"
+
 from app.config import get_settings
 from app.database import get_db
 from app.main import app
@@ -40,17 +45,13 @@ async def test_engine():
     await engine.dispose()
 
 @pytest_asyncio.fixture(scope="session")
-async def test_session_factory(test_engine):
-    yield async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-
-@pytest_asyncio.fixture(scope="session", autouse=True)
 async def setup_test_database(test_engine):
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine as create_eng
 
     admin_engine = create_eng(settings.DATABASE_URL, isolation_level="AUTOCOMMIT")
     async with admin_engine.connect() as conn:
-        await conn.execute(text("DROP DATABASE IF EXISTS preppilot_test"))
+        await conn.execute(text("DROP DATABASE IF EXISTS preppilot_test WITH (FORCE)"))
         await conn.execute(text("CREATE DATABASE preppilot_test"))
     await admin_engine.dispose()
 
@@ -61,7 +62,11 @@ async def setup_test_database(test_engine):
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture(scope="session")
+async def test_session_factory(test_engine, setup_test_database):
+    yield async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+@pytest_asyncio.fixture
 async def cleanup_database(test_session_factory):
     """Clean up the database before each test."""
     async with test_session_factory() as cleanup_session:
@@ -71,12 +76,12 @@ async def cleanup_database(test_session_factory):
     yield
 
 @pytest_asyncio.fixture
-async def db_session(test_session_factory) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(test_session_factory, cleanup_database) -> AsyncGenerator[AsyncSession, None]:
     async with test_session_factory() as session:
         yield session
 
 @pytest_asyncio.fixture
-async def client(test_session_factory) -> AsyncGenerator[AsyncClient, None]:
+async def client(test_session_factory, cleanup_database) -> AsyncGenerator[AsyncClient, None]:
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with test_session_factory() as session:
             try:
@@ -92,10 +97,7 @@ async def client(test_session_factory) -> AsyncGenerator[AsyncClient, None]:
         yield ac
     app.dependency_overrides.clear()
 
-@pytest.fixture(autouse=True)
-def set_env_vars(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
-    monkeypatch.setenv("EMBEDDING_DIMENSION", "768")
+
 
 @pytest.fixture(autouse=True)
 def mock_genai_client_global():

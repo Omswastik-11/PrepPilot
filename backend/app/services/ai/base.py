@@ -23,8 +23,35 @@ class BaseAIProvider(ABC):
         difficulty: str,
         num_questions: int,
         company: str | None,
+        candidate_background: str | None = None,
     ) -> list[GeneratedQuestion]:
         """Generate interview questions."""
+        pass
+
+    @abstractmethod
+    async def generate_next_interview_question(
+        self,
+        interview_type: str,
+        target_difficulty: str,
+        company: str | None,
+        role: str | None,
+        candidate_background: str | None,
+        conversation_history: list[dict],
+        question_number: int,
+    ) -> GeneratedQuestion:
+        """Generate the next interview question based on history."""
+        pass
+
+    @abstractmethod
+    async def generate_questions_from_context(
+        self,
+        context: str,
+        domain: str,
+        topic: str,
+        company: str | None,
+        num_questions: int,
+    ) -> list[GeneratedQuestion]:
+        """Generate interview questions based on provided context."""
         pass
 
     @abstractmethod

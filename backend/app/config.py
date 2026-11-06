@@ -13,7 +13,9 @@ SYSTEM DESIGN NOTE:
   the app won't start. Better to crash at startup than serve broken responses.
 """
 
-from pydantic_settings import BaseSettings
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 from functools import lru_cache
 
 
@@ -23,6 +25,22 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://preppilot:preppilot_dev_password@localhost:5432/preppilot"
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def assemble_db_connection(cls, v: str) -> str:
+        """Ensure standard Postgres URLs from cloud providers use asyncpg driver."""
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                v = v.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif v.startswith("postgresql://") and not v.startswith("postgresql+asyncpg://"):
+                v = v.replace("postgresql://", "postgresql+asyncpg://", 1)
+            if "sslmode=" in v:
+                v = v.replace("sslmode=", "ssl=")
+        return v
+
+    # CORS
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     # JWT Authentication
     JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
@@ -30,18 +48,18 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # AI Providers Config
-    GEMINI_API_KEY: str = ""
+    GEMINI_API_KEY: Optional[str] = None
     GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_TIMEOUT_SECONDS: int = 30
     GEMINI_MAX_RETRIES: int = 1
 
-    HF_TOKEN: str = ""
-    HF_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.2"
-    HF_TIMEOUT_SECONDS: int = 30
-    HF_MAX_RETRIES: int = 1
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "openai/gpt-oss-20b"
+    GROQ_TIMEOUT_SECONDS: int = 30
+    GROQ_MAX_RETRIES: int = 1
 
     AI_PRIMARY_PROVIDER: str = "gemini"
-    AI_FALLBACK_PROVIDER: str = "huggingface"
+    AI_FALLBACK_PROVIDER: str = "groq"
 
     # Memory Dedup
     MEMORY_DEDUP_THRESHOLD: float = 0.25
@@ -55,16 +73,23 @@ class Settings(BaseSettings):
     WEB_SEARCH_ENABLED: bool = False
     WEB_SEARCH_PROVIDER: str = "gemini"
 
+    # Google OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/auth/google/callback"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # Application
     APP_NAME: str = "PrepPilot"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": True,
-    }
+    model_config = SettingsConfigDict(
+        env_file=(".env", "backend/.env", "../.env"),
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+    )
 
 
 @lru_cache()

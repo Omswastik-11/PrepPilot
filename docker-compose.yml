@@ -4,15 +4,15 @@ services:
     image: pgvector/pgvector:pg16
     container_name: preppilot-db
     environment:
-      POSTGRES_USER: preppilot
-      POSTGRES_PASSWORD: preppilot_dev_password
-      POSTGRES_DB: preppilot
+      POSTGRES_USER: ${POSTGRES_USER:-preppilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-preppilot_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-preppilot}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U preppilot"]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-preppilot}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,24 +25,32 @@ services:
     container_name: preppilot-backend
     ports:
       - "8000:8000"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
-      DATABASE_URL: postgresql+asyncpg://preppilot:preppilot_dev_password@db:5432/preppilot
-      JWT_SECRET_KEY: dev-secret-key-change-in-production
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-preppilot}:${POSTGRES_PASSWORD:-preppilot_dev_password}@db:5432/${POSTGRES_DB:-preppilot}}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: gemini-3.6-flash
-      HF_TOKEN: ${HF_TOKEN}
-      HF_MODEL: mistralai/Mistral-7B-Instruct-v0.2
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: openai/gpt-oss-20b
       AI_PRIMARY_PROVIDER: gemini
-      AI_FALLBACK_PROVIDER: huggingface
+      AI_FALLBACK_PROVIDER: groq
       ENVIRONMENT: development
+      ALLOWED_ORIGINS: http://localhost:3000,https://preppilot.vercel.app
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     depends_on:
       db:
         condition: service_healthy
     volumes:
-      - ./backend/app:/code/app  # Hot reload in dev
+      - ./backend/app:/code/app # Hot reload in dev
       - ./backend/alembic:/code/alembic # Ensure generated migrations are synced
       - ./backend/tests:/code/tests # Mount tests
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: bash -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
   # Next.js Frontend
   frontend:

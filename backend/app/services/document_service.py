@@ -63,33 +63,25 @@ class DocumentService:
         {text[:15000]}  # limit text to avoid token limits if extremely long
         """
         
-        # We need a method to get structured output from Gemini provider
-        # Assuming we can use the provider's generate_json or similar
-        # Since GeminiProvider in Phase 3 might not have generic json extraction exposed easily,
-        # let's call it directly or assume `generate_structured` exists (it does in AIService).
-        # We'll use AIService ideally. Let's import AIService.
-        from app.services.ai.service import AIService
-        ai_service = AIService()
+        from google.genai.types import GenerateContentConfig
         
-        # The prompt is sent to the LLM to get structured JSON matching ResumeExtraction schema
-        # In a real app we'd enforce the JSON schema. For now, let's assume we can get it.
-        # As AIService typically handles evaluations, we'll just mock/invoke generate_response and parse.
-        response_text = await ai_service.generate_response(
-            prompt=prompt + "\nRespond ONLY with valid JSON matching the schema.",
-            system_instruction="You are an expert technical recruiter."
-        )
-        
-        # Clean up JSON if needed
-        json_str = response_text.strip()
-        if json_str.startswith("```json"):
-            json_str = json_str[7:-3]
-            
         try:
-            data = json.loads(json_str)
+            response = await self.ai_provider.client.aio.models.generate_content(
+                model=self.ai_provider.model_name,
+                contents=prompt,
+                config=GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ResumeExtraction,
+                    system_instruction="You are an expert technical recruiter."
+                )
+            )
+            data = json.loads(response.text)
             extraction = ResumeExtraction(**data)
+            json_str = response.text
         except Exception as e:
             logger.error(f"Failed to parse LLM extraction: {e}")
             raise
+
             
         # Update Profile
         await self.candidate_service.update_profile(

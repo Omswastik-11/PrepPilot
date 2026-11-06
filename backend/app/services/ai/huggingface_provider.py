@@ -70,9 +70,11 @@ class HuggingFaceProvider(BaseAIProvider):
         difficulty: str,
         num_questions: int,
         company: str | None,
+        candidate_background: str | None = None,
     ) -> list[GeneratedQuestion]:
         company_text = company if company else "a top tech company"
-        prompt = f"""[INST] You are a senior technical interviewer at {company_text}.
+        bg_text = f" Candidate Background: {candidate_background}." if candidate_background else ""
+        prompt = f"""[INST] You are a senior technical interviewer at {company_text}.{bg_text}
 Generate {num_questions} {difficulty} {interview_type} interview questions.
 
 Return ONLY a valid JSON array of objects. Do not include markdown formatting or explanations.
@@ -94,6 +96,64 @@ Example output:
         data = await self._make_request(prompt)
         if not isinstance(data, list):
             raise AIServiceError("HuggingFace returned invalid structure for questions")
+            
+        return [GeneratedQuestion(**item) for item in data]
+
+    async def generate_next_interview_question(
+        self,
+        interview_type: str,
+        target_difficulty: str,
+        company: str | None,
+        role: str | None,
+        candidate_background: str | None,
+        conversation_history: list[dict],
+        question_number: int,
+    ) -> GeneratedQuestion:
+        # Fallback to standard generic question generation for HF
+        questions = await self.generate_questions(
+            interview_type=interview_type,
+            difficulty=target_difficulty,
+            num_questions=1,
+            company=company,
+            candidate_background=candidate_background,
+        )
+        return questions[0]
+
+    async def generate_questions_from_context(
+        self,
+        context: str,
+        domain: str,
+        topic: str,
+        company: str | None,
+        num_questions: int,
+    ) -> list[GeneratedQuestion]:
+        company_text = company if company else "a top tech company"
+        prompt = f"""[INST] You are a senior technical interviewer at {company_text}.
+Generate {num_questions} interview questions based SPECIFICALLY on the following content.
+
+Domain: {domain}
+Topic: {topic}
+Content: {context}
+
+Return ONLY a valid JSON array of objects. Do not include markdown formatting or explanations.
+Each object must have:
+- "question_text" (string, derived specifically from the content)
+- "time_limit_seconds" (integer, 60-300)
+- "ideal_answer_hints" (array of strings)
+
+Example output:
+[
+  {{
+    "question_text": "...",
+    "time_limit_seconds": 120,
+    "ideal_answer_hints": ["...", "..."]
+  }}
+]
+[/INST]"""
+
+        data = await self._make_request(prompt)
+        if not isinstance(data, list):
+            raise AIServiceError("HuggingFace returned invalid structure for context questions")
             
         return [GeneratedQuestion(**item) for item in data]
 

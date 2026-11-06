@@ -27,7 +27,11 @@ class CandidateService:
         return await self.profile_repo.create(user_id=user_id, **profile_data.model_dump(exclude_unset=True))
 
     async def update_profile(self, user_id: UUID, profile_data: CandidateProfileUpdate) -> Optional[CandidateProfile]:
-        return await self.profile_repo.update(user_id=user_id, **profile_data.model_dump(exclude_unset=True))
+        updated = await self.profile_repo.update(user_id=user_id, **profile_data.model_dump(exclude_unset=True))
+        if not updated:
+            # Profile doesn't exist, create it
+            return await self.profile_repo.create(user_id=user_id, **profile_data.model_dump(exclude_unset=True))
+        return updated
 
     async def get_memories(self, user_id: UUID, memory_type: Optional[str] = None) -> List[CandidateMemory]:
         return await self.memory_repo.list_by_user(user_id, memory_type)
@@ -107,3 +111,70 @@ class CandidateService:
             user_id, memory_type, content, source, confidence, interview_id
         )
         return await self.apply_memory_upsert(plan)
+
+    async def summarize_and_update_insights(self, user_id: UUID, ai_service) -> None:
+        """
+        Reads all active strengths/weaknesses and synthesizes them into high-level themes.
+        Marks old granular memories as superseded (by setting status or confidence).
+        Wait, CandidateMemory model doesn't have a status field. We can just delete the old ones 
+        or lower their confidence, or just delete them to avoid clutter. 
+        As per user request: "Keep granular memories but mark them superseded."
+        Let's add 'superseded' to their source or just keep them and the new ones will have source='theme_summary'.
+        Actually, we can just delete the old ones for MVP simplicity, or update source='superseded'.
+        Let's update their source to 'superseded'.
+        """
+        memories = await self.get_memories(user_id)
+        active_strengths = [m.content for m in memories if m.memory_type == "strength" and m.source != "superseded"]
+        active_weaknesses = [m.content for m in memories if m.memory_type == "weakness" and m.source != "superseded"]
+        
+        if not active_strengths and not active_weaknesses:
+            return
+            
+        prompt = f"""[INST] Given these observations about a candidate from multiple interviews:
+
+STRENGTHS:
+{chr(10).join(active_strengths) if active_strengths else 'None'}
+
+WEAKNESSES:
+{chr(10).join(active_weaknesses) if active_weaknesses else 'None'}
+
+Synthesize these into 3-5 high-level, actionable insights for each category.
+- Group similar observations together by SUBJECT MATTER (e.g., 'Data Structures', 'System Design', 'Time Complexity Analysis').
+- DO NOT mention exact implementation details (e.g. 'used erase and push_front'). Extract the generalized skill.
+- Frame weaknesses as broad growth areas with actionable advice.
+
+Return ONLY a valid JSON object. Do not include markdown formatting.
+The object must have:
+- "strengths" (array of strings)
+- "weaknesses" (array of strings)
+[/INST]"""
+
+        try:
+            # We use generic generate_response which is available on AI Service
+            response_text = await ai_service.generate_response(prompt)
+            import json
+            
+            # Clean up potential markdown formatting from response
+            clean_text = response_text.strip()
+            if clean_text.startswith("```json"):
+                clean_text = clean_text[7:]
+            if clean_text.startswith("```"):
+                clean_text = clean_text[3:]
+            if clean_text.endswith("```"):
+                clean_text = clean_text[:-3]
+                
+            data = json.loads(clean_text)
+            
+            # Mark old memories as superseded
+            for m in memories:
+                if m.source != "superseded":
+                    await self.memory_repo.update(m.id, source="superseded")
+                    
+            # Insert new themed memories
+            for s in data.get("strengths", []):
+                await self.upsert_memory(user_id, "strength", s, source="theme_summary", confidence=1.0)
+            for w in data.get("weaknesses", []):
+                await self.upsert_memory(user_id, "weakness", w, source="theme_summary", confidence=1.0)
+                
+        except Exception as e:
+            logger.error(f"Failed to summarize insights: {e}")

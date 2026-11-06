@@ -74,9 +74,14 @@ class Interview(Base, UUIDMixin, TimestampMixin):
         String(20),
         default="in_progress",
     )
-    num_questions: Mapped[int] = mapped_column(
+    num_questions: Mapped[int | None] = mapped_column(
         Integer,
-        default=5,
+        nullable=True,
+    )
+    duration_minutes: Mapped[int | None] = mapped_column(
+        Integer,
+        default=40,
+        nullable=True,
     )
     total_score: Mapped[float | None] = mapped_column(
         Float,

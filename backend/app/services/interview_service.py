@@ -39,13 +39,27 @@ class InterviewService:
         Creates a new interview and generates the FIRST question adaptively.
         """
         # 1. Persist Interview
+        # Auto-generate title (F3.1)
+        parts = []
+        if data.company: parts.append(data.company.title())
+        if data.role: parts.append(data.role.title())
+        parts.append(f"{data.interview_type.replace('_', ' ').title()}")
+        title = " — ".join(parts)
+        
+        metadata = {"title": title}
+        if data.role:
+            metadata["role"] = data.role
+
         interview = Interview(
             user_id=user_id,
             interview_type=data.interview_type,
             difficulty=data.difficulty,
+            duration_minutes=data.duration_minutes,
             num_questions=data.num_questions,
             company=data.company,
+            metadata_=metadata,
             status="in_progress",
+            started_at=datetime.now(timezone.utc).replace(tzinfo=None),
         )
         self.interview_repo.add(interview)
         await self.db.flush() # get interview.id
@@ -56,15 +70,21 @@ class InterviewService:
         
         if not planned_q.question_text:
             # Generate via AI if not from question bank
-            # Note: For real app, AIService should take planned_q
-            generated_questions = await self.ai_service.generate_questions(
+            candidate_service = CandidateService(self.db)
+            profile = await candidate_service.get_profile(user_id)
+            tone = profile.preferred_tone if profile else "professional"
+            
+            generated_question = await self.ai_service.generate_next_interview_question(
                 interview_type=data.interview_type,
-                difficulty=planned_q.difficulty,
-                num_questions=1,
+                target_difficulty=planned_q.difficulty,
                 company=data.company,
+                role=data.role,
+                candidate_background=f"{(planned_q.context_used or '')} Adopt a {tone} tone.",
+                conversation_history=[],
+                question_number=1,
             )
-            q_text = generated_questions[0].question_text
-            ideal_answer = "\n".join(generated_questions[0].ideal_answer_hints)
+            q_text = generated_question.question_text
+            ideal_answer = "\n".join(generated_question.ideal_answer_hints)
         else:
             q_text = planned_q.question_text
             ideal_answer = planned_q.expected_key_points
@@ -120,15 +140,18 @@ class InterviewService:
             raise InvalidStateError("This question has already been answered")
 
         # 2. Evaluate answer via AI
+        candidate_service = CandidateService(self.db)
+        profile = await candidate_service.get_profile(user_id)
+        tone = profile.preferred_tone if profile else "professional"
+        
         evaluation = await self.ai_service.evaluate_answer(
             question_text=question.question_text,
             user_answer=data.user_answer,
             interview_type=interview.interview_type,
-            difficulty=interview.difficulty,
+            difficulty=interview.difficulty + f" Evaluate using a {tone} tone."
         )
 
         # 3. Resolve Candidate Memories (External AI calls for embeddings)
-        candidate_service = CandidateService(self.db)
         memory_plans = []
         if evaluation.strengths:
             for s in evaluation.strengths:
@@ -146,19 +169,40 @@ class InterviewService:
         # 4. Plan Next Question if not finished (External AI calls)
         current_q_count = len(interview.questions)
         next_q = None
-        if current_q_count < interview.num_questions:
+        
+        # Determine if time is up
+        time_expired = False
+        if interview.duration_minutes and interview.started_at:
+            elapsed_seconds = (datetime.now(timezone.utc).replace(tzinfo=None) - interview.started_at).total_seconds()
+            if elapsed_seconds >= interview.duration_minutes * 60:
+                time_expired = True
+
+        if not time_expired and (interview.num_questions is None or current_q_count < interview.num_questions):
             planner = InterviewPlanner(self.db)
             planned_q = await planner.determine_next_question(interview_id)
             
             if not planned_q.question_text:
-                generated = await self.ai_service.generate_questions(
+                # Build conversation history
+                history = []
+                for q in sorted(interview.questions, key=lambda x: x.question_order):
+                    history.append({"role": "interviewer", "content": q.question_text})
+                    if q.answer:
+                        history.append({"role": "candidate", "content": q.answer.user_answer, "score": q.answer.score})
+                    elif q.id == question.id:
+                        history.append({"role": "candidate", "content": data.user_answer, "score": evaluation.score})
+
+                role = interview.metadata_.get("role") if interview.metadata_ else None
+                generated_question = await self.ai_service.generate_next_interview_question(
                     interview_type=interview.interview_type,
-                    difficulty=planned_q.difficulty,
-                    num_questions=1,
+                    target_difficulty=planned_q.difficulty,
                     company=interview.company,
+                    role=role,
+                    candidate_background=f"{(planned_q.context_used or '')} Adopt a {tone} tone.",
+                    conversation_history=history,
+                    question_number=current_q_count + 1,
                 )
-                q_text = generated[0].question_text
-                ideal_answer = "\n".join(generated[0].ideal_answer_hints)
+                q_text = generated_question.question_text
+                ideal_answer = "\n".join(generated_question.ideal_answer_hints)
             else:
                 q_text = planned_q.question_text
                 ideal_answer = planned_q.expected_key_points
@@ -221,9 +265,10 @@ class InterviewService:
         if interview.status != "in_progress":
             raise InvalidStateError(f"Cannot complete. Interview is {interview.status}")
             
-        unanswered_count = await self.question_repo.get_unanswered_count(interview_id)
-        if unanswered_count > 0:
-            raise InvalidStateError("Cannot complete interview. Not all questions are answered.")
+        # Delete unanswered questions (if any were planned but not answered due to time expiry or manual finish)
+        unanswered_questions = [q for q in interview.questions if q.answer is None]
+        for q in unanswered_questions:
+            await self.db.delete(q)
             
         # Compute total score
         # Note: we already have interview.questions loaded with answers due to get_interview()
@@ -239,6 +284,32 @@ class InterviewService:
             
         interview.status = "completed"
         interview.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        
+        await self.db.commit()
+        await self.db.refresh(interview)
+        
+        # Summarize insights after interview completes
+        try:
+            candidate_service = CandidateService(self.db)
+            await candidate_service.summarize_and_update_insights(user_id, self.ai_service)
+        except Exception as e:
+            # Don't fail the interview completion if summarization fails
+            pass
+            
+        return interview
+
+    async def update_title(self, interview_id: UUID, user_id: UUID, title: str) -> Interview:
+        interview = await self.get_interview(interview_id, user_id)
+        
+        # Initialize metadata_ if None
+        if interview.metadata_ is None:
+            interview.metadata_ = {}
+            
+        # Update title in metadata
+        # We need to make a copy since SQLAlchemy doesn't track deep changes in JSONB easily
+        metadata_copy = dict(interview.metadata_)
+        metadata_copy["title"] = title
+        interview.metadata_ = metadata_copy
         
         await self.db.commit()
         await self.db.refresh(interview)

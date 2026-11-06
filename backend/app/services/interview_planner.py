@@ -20,6 +20,22 @@ ALLOWED_TRANSITIONS = {
     "Principal": ["Senior", "Principal"],
 }
 
+DIFFICULTY_MAP = {
+    "easy": "Junior",
+    "medium": "Mid",
+    "hard": "Senior",
+    "junior": "Junior",
+    "mid": "Mid",
+    "senior": "Senior",
+    "principal": "Principal",
+}
+
+def normalize_difficulty(diff: Optional[str]) -> str:
+    if not diff:
+        return "Mid"
+    return DIFFICULTY_MAP.get(str(diff).strip().lower(), "Mid")
+
+
 class InterviewPlanner:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -28,7 +44,7 @@ class InterviewPlanner:
 
     async def determine_next_question(self, interview_id: UUID) -> PlannedQuestion:
         # 1. Rebuild state
-        state, user_id = await self._build_interview_state(interview_id)
+        state, user_id, company = await self._build_interview_state(interview_id)
         
         # 2. Adjust difficulty based on recent performance
         next_difficulty = self._compute_next_difficulty(state)
@@ -42,13 +58,29 @@ class InterviewPlanner:
             query=f"Experience with {next_skill} for {next_difficulty} level",
             limit=2
         )
-        context_str = " | ".join([m.content for m in memories]) if memories else None
+        
+        profile = await self.candidate_service.get_profile(user_id)
+        context_parts = []
+        if profile:
+            if profile.experience_years is not None:
+                context_parts.append(f"Candidate has {profile.experience_years} years of experience.")
+            if profile.target_roles:
+                context_parts.append(f"Candidate is targeting roles: {', '.join(profile.target_roles)}")
+                
+        if memories:
+            context_parts.append("Candidate specific memories/achievements: " + " | ".join([m.content for m in memories]))
+            
+        context_str = "\n".join(context_parts) if context_parts else None
+        
+        role_str = f" for the {state.target_role} role" if state.target_role else ""
+        query_text = f"Interview question for {next_skill}{role_str}"
         
         # 5. Hybrid Retrieval from Question Bank
         retrieved_questions = await self.retrieval_service.retrieve_questions(
-            query=f"Interview question for {next_skill}",
+            query=query_text,
             domain="Software Engineering", # default for MVP
             difficulty=next_difficulty,
+            company=company,
             limit=1
         )
         
@@ -74,7 +106,7 @@ class InterviewPlanner:
             context_used=context_str
         )
 
-    async def _build_interview_state(self, interview_id: UUID) -> tuple[InterviewState, UUID]:
+    async def _build_interview_state(self, interview_id: UUID) -> tuple[InterviewState, UUID, Optional[str]]:
         result = await self.session.execute(
             select(Interview).where(Interview.id == interview_id)
         )
@@ -92,13 +124,13 @@ class InterviewPlanner:
         
         recent_scores = []
         skills_tested = []
-        current_diff = "Junior"
+        current_diff = normalize_difficulty(interview.difficulty)
         
         for q in questions:
             if q.topic:
                 skills_tested.append(q.topic)
             if q.difficulty:
-                current_diff = q.difficulty
+                current_diff = normalize_difficulty(q.difficulty)
             if q.answer and q.answer.score is not None:
                 recent_scores.append(q.answer.score)
         
@@ -106,30 +138,34 @@ class InterviewPlanner:
         profile = await self.candidate_service.get_profile(interview.user_id)
         skills_to_test = profile.skills if profile and profile.skills else ["Python", "System Design", "Database", "API Design"]
         
+        target_role = interview.metadata_.get("role") if interview.metadata_ else None
+
         state = InterviewState(
             interview_id=interview.id,
             current_difficulty=current_diff,
+            target_role=target_role,
             skills_to_test=skills_to_test,
             skills_tested=skills_tested,
             recent_performance=recent_scores,
         )
-        return state, interview.user_id
+        return state, interview.user_id, interview.company
 
     def _compute_next_difficulty(self, state: InterviewState) -> str:
         if not state.recent_performance:
-            return state.current_difficulty
+            return normalize_difficulty(state.current_difficulty)
             
         avg_score = sum(state.recent_performance[-2:]) / min(len(state.recent_performance), 2)
-        current = state.current_difficulty
+        current = normalize_difficulty(state.current_difficulty)
         
         if current not in ALLOWED_TRANSITIONS:
-            return "Junior"
+            return "Mid"
             
-        if avg_score >= 0.8:
+        # EvaluationResult scores are on a 0.0 to 10.0 scale
+        if avg_score >= 8.0:
             idx = ALLOWED_TRANSITIONS[current].index(current)
             if idx + 1 < len(ALLOWED_TRANSITIONS[current]):
                 return ALLOWED_TRANSITIONS[current][idx + 1]
-        elif avg_score < 0.5:
+        elif avg_score < 5.0:
             idx = ALLOWED_TRANSITIONS[current].index(current)
             if idx - 1 >= 0:
                 return ALLOWED_TRANSITIONS[current][idx - 1]

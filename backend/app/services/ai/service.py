@@ -12,7 +12,7 @@ from app.exceptions import AIServiceError
 from app.schemas.ai import GeneratedQuestion, EvaluationResult
 from app.services.ai.base import BaseAIProvider
 from app.services.ai.gemini_provider import GeminiProvider
-from app.services.ai.huggingface_provider import HuggingFaceProvider
+from app.services.ai.groq_provider import GroqProvider
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -30,7 +30,7 @@ class AIService:
         
         self.providers: dict[str, Optional[BaseAIProvider]] = {
             "gemini": None,
-            "huggingface": None,
+            "groq": None,
         }
         
         # Lazy initialization
@@ -42,8 +42,8 @@ class AIService:
         try:
             if name == "gemini":
                 self.providers["gemini"] = GeminiProvider()
-            elif name == "huggingface":
-                self.providers["huggingface"] = HuggingFaceProvider()
+            elif name == "groq":
+                self.providers["groq"] = GroqProvider()
         except ValueError as e:
             logger.warning(f"Failed to initialize AI provider '{name}': {str(e)}")
 
@@ -82,7 +82,7 @@ class AIService:
                 fallback = self._get_provider(self.fallback_name)
                 logger.info(f"Attempting fallback to '{self.fallback_name}'")
                 
-                for attempt in range(settings.HF_MAX_RETRIES + 1):
+                for attempt in range(settings.GROQ_MAX_RETRIES + 1):
                     try:
                         method = getattr(fallback, method_name)
                         return await method(*args, **kwargs)
@@ -108,9 +108,37 @@ class AIService:
         difficulty: str,
         num_questions: int,
         company: str | None,
+        candidate_background: str | None = None,
     ) -> list[GeneratedQuestion]:
         return await self._execute_with_fallback(
-            "generate_questions", interview_type, difficulty, num_questions, company
+            "generate_questions", interview_type, difficulty, num_questions, company, candidate_background
+        )
+
+    async def generate_next_interview_question(
+        self,
+        interview_type: str,
+        target_difficulty: str,
+        company: str | None,
+        role: str | None,
+        candidate_background: str | None,
+        conversation_history: list[dict],
+        question_number: int,
+    ) -> GeneratedQuestion:
+        return await self._execute_with_fallback(
+            "generate_next_interview_question", 
+            interview_type, target_difficulty, company, role, candidate_background, conversation_history, question_number
+        )
+
+    async def generate_questions_from_context(
+        self,
+        context: str,
+        domain: str,
+        topic: str,
+        company: str | None,
+        num_questions: int,
+    ) -> list[GeneratedQuestion]:
+        return await self._execute_with_fallback(
+            "generate_questions_from_context", context, domain, topic, company, num_questions
         )
 
     async def evaluate_answer(

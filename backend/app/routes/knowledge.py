@@ -39,6 +39,7 @@ class URLIngestRequest(BaseModel):
     url: str
     domain: str
     topic: str
+    company: str | None = None
 
 @router.post("/ingest", response_model=List[QuestionBankResponse])
 async def ingest_url(
@@ -47,6 +48,6 @@ async def ingest_url(
     service: KnowledgeService = Depends(get_knowledge_service)
 ):
     try:
-        return await service.ingest_url(req.url, req.domain, req.topic)
+        return await service.ingest_url(req.url, req.domain, req.topic, req.company)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

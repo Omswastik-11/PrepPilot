@@ -4,6 +4,9 @@ from uuid import UUID
 from datetime import datetime
 
 class CandidateProfileBase(BaseModel):
+    name: Optional[str] = None
+    institute: Optional[str] = None
+    qualification: Optional[str] = None
     target_roles: Optional[List[str]] = None
     target_companies: Optional[List[str]] = None
     skills: Optional[List[str]] = None
@@ -11,6 +14,7 @@ class CandidateProfileBase(BaseModel):
     education: Optional[str] = None
     preferred_interview_types: Optional[List[str]] = None
     bio: Optional[str] = None
+    preferred_tone: Optional[str] = "professional"
 
 class CandidateProfileCreate(CandidateProfileBase):
     pass

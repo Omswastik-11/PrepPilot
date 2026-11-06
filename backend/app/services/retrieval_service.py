@@ -20,10 +20,11 @@ class RetrievalService:
         query: str, 
         domain: Optional[str] = None, 
         difficulty: Optional[str] = None,
+        company: Optional[str] = None,
         limit: int = 5
     ) -> List[QuestionBank]:
         """
-        Hybrid retrieval: Structured SQL filters + pgvector similarity.
+        Hybrid retrieval: Structured SQL filters (with company priority fallback) + pgvector similarity.
         """
         try:
             query_embedding = await self.embedding_service.embed_text(query)
@@ -38,8 +39,23 @@ class RetrievalService:
         if difficulty:
             sql_query = sql_query.where(QuestionBank.difficulty == difficulty)
 
-        # Order by vector distance (L2 distance <->)
-        # SQLAlchemy pgvector syntax: Model.embedding.l2_distance(vector)
+        # 1. Try with company filter first if provided
+        if company:
+            company_query = sql_query.where(QuestionBank.company == company)
+            company_query = company_query.order_by(
+                QuestionBank.embedding.l2_distance(query_embedding)
+            ).limit(limit)
+            
+            result = await self.session.execute(company_query)
+            questions = list(result.scalars().all())
+            
+            if questions:
+                return questions
+            
+            # If no company-specific questions found, fall back to company-agnostic (or other companies)
+            logger.info(f"No questions found for company {company}, falling back to general questions.")
+
+        # 2. Default/Fallback query (no company filter)
         sql_query = sql_query.order_by(
             QuestionBank.embedding.l2_distance(query_embedding)
         ).limit(limit)

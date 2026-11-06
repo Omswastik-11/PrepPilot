@@ -16,6 +16,7 @@ from app.schemas.interview import (
     InterviewResponse,
     InterviewListResponse,
     InterviewSummary,
+    InterviewTitleUpdate,
 )
 from app.schemas.question import AnswerCreate, AnswerResponse
 from app.services.interview_service import InterviewService
@@ -94,4 +95,15 @@ async def complete_interview(
 ):
     """Complete an interview (requires all questions to be answered)."""
     interview = await interview_service.complete_interview(interview_id, current_user.id)
+    return interview
+
+@router.patch("/{interview_id}/title", response_model=InterviewSummary)
+async def update_interview_title(
+    interview_id: UUID,
+    data: InterviewTitleUpdate,
+    current_user: User = Depends(get_current_user),
+    interview_service: InterviewService = Depends(get_interview_service),
+):
+    """Update interview title."""
+    interview = await interview_service.update_title(interview_id, current_user.id, data.title)
     return interview
