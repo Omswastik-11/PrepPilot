@@ -44,13 +44,13 @@ class InterviewPlanner:
 
     async def determine_next_question(self, interview_id: UUID) -> PlannedQuestion:
         # 1. Rebuild state
-        state, user_id, company = await self._build_interview_state(interview_id)
+        state, user_id, company, interview_type = await self._build_interview_state(interview_id)
         
         # 2. Adjust difficulty based on recent performance
         next_difficulty = self._compute_next_difficulty(state)
         
         # 3. Select next skill/topic to test
-        next_skill = self._select_next_skill(state)
+        next_skill = self._select_next_skill(state, interview_type)
         
         # 4. Gather context (memories) for this skill
         memories = await self.retrieval_service.retrieve_memories(
@@ -75,10 +75,18 @@ class InterviewPlanner:
         role_str = f" for the {state.target_role} role" if state.target_role else ""
         query_text = f"Interview question for {next_skill}{role_str}"
         
+        # Determine domain dynamically based on interview type
+        if interview_type == "behavioral":
+            domain = "Behavioral Competencies"
+        elif interview_type == "system_design":
+            domain = "System Design"
+        else:
+            domain = state.target_role if state.target_role else "Software Engineering"
+        
         # 5. Hybrid Retrieval from Question Bank
         retrieved_questions = await self.retrieval_service.retrieve_questions(
             query=query_text,
-            domain="Software Engineering", # default for MVP
+            domain=domain,
             difficulty=next_difficulty,
             company=company,
             limit=1
@@ -99,14 +107,14 @@ class InterviewPlanner:
             
         # 6. Fallback: Generate dynamically
         return PlannedQuestion(
-            domain="Software Engineering",
+            domain=domain,
             topic=next_skill,
             difficulty=next_difficulty,
             adaptation_reason="Fallback to dynamic generation",
             context_used=context_str
         )
 
-    async def _build_interview_state(self, interview_id: UUID) -> tuple[InterviewState, UUID, Optional[str]]:
+    async def _build_interview_state(self, interview_id: UUID) -> tuple[InterviewState, UUID, Optional[str], str]:
         result = await self.session.execute(
             select(Interview).where(Interview.id == interview_id)
         )
@@ -134,11 +142,48 @@ class InterviewPlanner:
             if q.answer and q.answer.score is not None:
                 recent_scores.append(q.answer.score)
         
-        # Try to get target skills from profile
-        profile = await self.candidate_service.get_profile(interview.user_id)
-        skills_to_test = profile.skills if profile and profile.skills else ["Python", "System Design", "Database", "API Design"]
-        
+        # Determine skills to test intelligently based on interview_type and role
+        itype = (interview.interview_type or "").strip().lower()
         target_role = interview.metadata_.get("role") if interview.metadata_ else None
+        profile = await self.candidate_service.get_profile(interview.user_id)
+
+        if itype == "behavioral":
+            skills_to_test = [
+                "Conflict Resolution",
+                "Leadership & Ownership",
+                "Teamwork & Collaboration",
+                "Communication",
+                "Problem Solving",
+                "Adaptability & Growth",
+            ]
+        elif itype == "system_design":
+            skills_to_test = [
+                "System Architecture",
+                "Scalability & Caching",
+                "Data Modeling & Storage",
+                "API Design & Protocols",
+                "Reliability & Fault Tolerance",
+            ]
+        else:
+            # Technical interview: use candidate profile skills if provided
+            if profile and profile.skills:
+                skills_to_test = profile.skills
+            elif target_role:
+                r_lower = target_role.lower()
+                if any(k in r_lower for k in ["front", "react", "web", "ui", "ux"]):
+                    skills_to_test = ["JavaScript", "React", "TypeScript", "State Management", "Web Performance"]
+                elif any(k in r_lower for k in ["python", "data", "ml", "ai", "machine"]):
+                    skills_to_test = ["Python", "Data Processing", "SQL & Databases", "Machine Learning", "System Optimization"]
+                elif any(k in r_lower for k in ["java", "spring"]):
+                    skills_to_test = ["Java", "Spring Boot", "REST APIs", "Databases", "Concurrency"]
+                elif any(k in r_lower for k in ["cloud", "devops", "sre", "infra"]):
+                    skills_to_test = ["CI/CD Pipelines", "Docker & Kubernetes", "Cloud Architecture", "Monitoring & Logging", "Infrastructure"]
+                elif any(k in r_lower for k in ["mobile", "android", "ios", "flutter"]):
+                    skills_to_test = ["Mobile Architecture", "State Management", "Offline Sync", "UI Performance", "Networking"]
+                else:
+                    skills_to_test = ["Data Structures", "Algorithms", "System Architecture", "Databases", "API Design"]
+            else:
+                skills_to_test = ["Data Structures", "Algorithms", "System Architecture", "Databases", "API Design"]
 
         state = InterviewState(
             interview_id=interview.id,
@@ -148,7 +193,7 @@ class InterviewPlanner:
             skills_tested=skills_tested,
             recent_performance=recent_scores,
         )
-        return state, interview.user_id, interview.company
+        return state, interview.user_id, interview.company, itype
 
     def _compute_next_difficulty(self, state: InterviewState) -> str:
         if not state.recent_performance:
@@ -172,8 +217,12 @@ class InterviewPlanner:
                 
         return current
 
-    def _select_next_skill(self, state: InterviewState) -> str:
+    def _select_next_skill(self, state: InterviewState, interview_type: str = "technical") -> str:
         untested = [s for s in state.skills_to_test if s not in state.skills_tested]
         if untested:
             return untested[0]
-        return "General Engineering"
+        if interview_type == "behavioral":
+            return "Situational Judgment"
+        elif interview_type == "system_design":
+            return "Distributed Systems"
+        return "Core Engineering"

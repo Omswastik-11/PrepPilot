@@ -120,3 +120,29 @@ def test_compute_next_difficulty_unchanged():
         recent_performance=[6.5, 7.0],
     )
     assert planner._compute_next_difficulty(state_mid) == "Mid"
+
+
+def test_select_next_skill():
+    planner = InterviewPlanner(session=MagicMock())
+
+    state = InterviewState(
+        interview_id=uuid4(),
+        current_difficulty="Mid",
+        skills_to_test=["Conflict Resolution", "Leadership"],
+        skills_tested=["Conflict Resolution"],
+        recent_performance=[],
+    )
+    assert planner._select_next_skill(state, "behavioral") == "Leadership"
+
+    # All tested fallback
+    state_done = InterviewState(
+        interview_id=uuid4(),
+        current_difficulty="Mid",
+        skills_to_test=["Conflict Resolution"],
+        skills_tested=["Conflict Resolution"],
+        recent_performance=[],
+    )
+    assert planner._select_next_skill(state_done, "behavioral") == "Situational Judgment"
+    assert planner._select_next_skill(state_done, "system_design") == "Distributed Systems"
+    assert planner._select_next_skill(state_done, "technical") == "Core Engineering"
+
