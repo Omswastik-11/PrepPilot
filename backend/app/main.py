@@ -164,6 +164,7 @@ async def root():
 
 
 @app.get("/health", tags=["Health"])
+@app.get("/healthz", tags=["Health"])
 async def health_check():
     """Detailed health check for monitoring."""
     from app.database import async_session
