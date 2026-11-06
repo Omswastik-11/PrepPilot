@@ -40,6 +40,20 @@ class QuestionBankRepository:
         result = await self.session.execute(select(QuestionBank).where(QuestionBank.id == question_id))
         return result.scalar_one_or_none()
 
+    async def find_similar_question(self, embedding: List[float], threshold: float = 0.88) -> Optional[QuestionBank]:
+        """Find an existing question within the cosine similarity threshold (1 - distance)."""
+        if embedding is None:
+            return None
+        max_distance = 1.0 - threshold
+        query = (
+            select(QuestionBank)
+            .where(QuestionBank.embedding.cosine_distance(embedding) < max_distance)
+            .order_by(QuestionBank.embedding.cosine_distance(embedding))
+            .limit(1)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def list_questions(self, domain: Optional[str] = None) -> List[QuestionBank]:
         query = select(QuestionBank)
         if domain:

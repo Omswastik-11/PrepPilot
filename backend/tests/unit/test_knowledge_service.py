@@ -25,6 +25,7 @@ def knowledge_service(mock_session, mock_embedding_service):
         service.question_repo = mock_quest_repo.return_value
         service.knowledge_repo.create_source = AsyncMock()
         service.question_repo.create_question = AsyncMock()
+        service.question_repo.find_similar_question = AsyncMock(return_value=None)
         yield service
 
 @pytest.mark.asyncio
@@ -65,4 +66,28 @@ async def test_add_question(knowledge_service, mock_embedding_service):
     mock_embedding_service.embed_text.assert_called_once_with(
         "Python Style Guide What is PEP8? Formatting guidelines"
     )
+    knowledge_service.question_repo.create_question.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_add_question_deduplication(knowledge_service, mock_embedding_service):
+    """Test that existing similar questions return existing record without duplicate insertion."""
+    existing_question = QuestionBank(id=uuid4(), question_text="What is PEP8?", company=None)
+    knowledge_service.question_repo.find_similar_question.return_value = existing_question
+    
+    from app.schemas.knowledge import QuestionBankCreate
+    question_data = QuestionBankCreate(
+        domain="Python",
+        topic="Style Guide",
+        difficulty="Junior",
+        company="Google",
+        question_text="What is PEP8 formatting standard?",
+        expected_key_points="Formatting guidelines"
+    )
+    
+    result = await knowledge_service.add_question(question_data)
+    
+    assert result == existing_question
+    assert result.company == "Google"
+    knowledge_service.question_repo.create_question.assert_not_called()
     knowledge_service.question_repo.create_question.assert_called_once()

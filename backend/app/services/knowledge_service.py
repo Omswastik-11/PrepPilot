@@ -41,29 +41,71 @@ class KnowledgeService:
             logger.warning(f"Failed to generate embedding for question: {e}")
             embedding = None
 
+        # Semantic Deduplication (Threshold 0.88 similarity -> distance < 0.12)
+        if embedding is not None:
+            existing = await self.question_repo.find_similar_question(embedding, threshold=0.88)
+            if existing:
+                logger.info(f"Duplicate question detected via vector similarity (matched ID: {existing.id}). Enriching rather than duplicating.")
+                if question_data.company and not existing.company:
+                    existing.company = question_data.company
+                return existing
+
         return await self.question_repo.create_question(
             domain=question_data.domain,
             topic=question_data.topic,
             difficulty=question_data.difficulty,
+            company=question_data.company,
             question_text=question_data.question_text,
             expected_key_points=question_data.expected_key_points,
             embedding=embedding,
             status="accepted"
         )
 
+    async def _fetch_url_content(self, url: str) -> str:
+        """
+        Resilient fetcher:
+        1. Attempts direct fetch with standard browser headers.
+        2. If anti-bot/JS/SPA blocks, falls back to open Reader proxy (r.jina.ai).
+        """
+        import httpx
+        from app.utils.text_extraction import strip_html
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+
+        # 1. Direct fetch
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=12.0, headers=headers) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    cleaned = strip_html(resp.text)
+                    if len(cleaned.strip()) > 250:
+                        return cleaned[:12000]
+        except Exception as e:
+            logger.warning(f"Direct fetch failed or timed out for {url}: {e}. Retrying via Reader proxy...")
+
+        # 2. Resilient Reader proxy fallback (executes JS & handles client-side rendering)
+        reader_url = f"https://r.jina.ai/{url}"
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as client:
+                resp = await client.get(reader_url, headers={"X-Target-Selector": "body"})
+                if resp.status_code == 200 and len(resp.text.strip()) > 100:
+                    return resp.text[:12000]
+        except Exception as e:
+            logger.error(f"Reader fallback also failed for {url}: {e}")
+
+        raise ValueError(f"Unable to extract readable text from {url} (page may require login or blocked requests).")
+
     async def ingest_url(self, url: str, domain: str, topic: str, company: Optional[str] = None) -> List[QuestionBank]:
         """
         Fetches a URL, extracts text, and generates question bank entries using AI.
         """
-        import httpx
         from app.services.ai.service import AIService
-        from app.utils.text_extraction import strip_html
         
         try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                resp = await client.get(url, timeout=10.0)
-                resp.raise_for_status()
-                text_content = strip_html(resp.text)[:10000] # simple truncation for MVP
+            text_content = await self._fetch_url_content(url)
         except Exception as e:
             logger.error(f"Failed to fetch URL {url}: {e}")
             raise ValueError(f"Could not fetch URL: {e}")
@@ -96,6 +138,7 @@ class KnowledgeService:
                 domain=domain,
                 topic=topic,
                 difficulty="Mid",
+                company=company,
                 question_text=gq.question_text,
                 expected_key_points="\n".join(gq.ideal_answer_hints),
                 knowledge_source_id=source.id

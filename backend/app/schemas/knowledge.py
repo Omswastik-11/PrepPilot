@@ -24,6 +24,7 @@ class QuestionBankBase(BaseModel):
     domain: str
     topic: str
     difficulty: str
+    company: Optional[str] = None
     question_text: str
     expected_key_points: Optional[str] = None
     knowledge_source_id: Optional[UUID] = None
