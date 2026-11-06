@@ -27,14 +27,15 @@ def mock_fallback():
 
 @pytest.fixture
 def ai_service(mock_gemini, mock_fallback):
-    # We patch AIService's internal provider dictionary
-    service = AIService()
-    service.fallback_name = "groq"
-    service.providers = {
-        "gemini": mock_gemini,
-        "groq": mock_fallback,
-    }
-    return service
+    with patch.object(AIService, "_init_provider"):
+        service = AIService()
+        service.primary_name = "gemini"
+        service.fallback_name = "groq"
+        service.providers = {
+            "gemini": mock_gemini,
+            "groq": mock_fallback,
+        }
+        return service
 
 
 @pytest.mark.asyncio

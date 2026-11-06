@@ -50,6 +50,14 @@ from app.models.base import Base  # Base now lives in models/base.py
 
 settings = get_settings()
 
+connect_args = {}
+# Neon & PgBouncer transaction pooling compatibility:
+# When using asyncpg with a transaction pooler (e.g. Neon's -pooler endpoint),
+# client-side statement caching must be disabled to avoid prepared statement conflicts.
+if "pooler" in settings.DATABASE_URL:
+    connect_args["statement_cache_size"] = 0
+    connect_args["prepared_statement_cache_size"] = 0
+
 # Create the async engine with connection pooling
 # pool_size=5: Keep 5 connections ready at all times
 # max_overflow=10: Allow up to 10 extra connections during traffic spikes
@@ -58,6 +66,7 @@ engine = create_async_engine(
     echo=settings.DEBUG,  # Log SQL queries in development (set False in prod)
     pool_size=5,
     max_overflow=10,
+    connect_args=connect_args,
 )
 
 # Session factory — creates new sessions for each request
