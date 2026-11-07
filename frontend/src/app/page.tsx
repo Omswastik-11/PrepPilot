@@ -6,6 +6,7 @@ import { useAuthStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import { Play } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   const { user } = useAuthStore();
@@ -78,9 +79,37 @@ export default function Home() {
             <p className="text-[var(--muted-foreground)]">Customize your mock interview experience with AI.</p>
           </div>
 
+          {user?.is_guest && (
+            <div className="mb-6 p-4 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10 border border-blue-500/20 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3 text-sm">
+                <span className="text-xl">⚡</span>
+                <div>
+                  <span className="font-semibold text-blue-500">Guest Trial: </span>
+                  <span className="text-[var(--muted-foreground)]">You have 1 free mock interview.</span>
+                </div>
+              </div>
+              <Link
+                href="/register"
+                className="text-xs px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shrink-0 shadow-sm"
+              >
+                Sign Up to Unlock Unlimited
+              </Link>
+            </div>
+          )}
+
           {error && (
-            <div className="mb-6 p-4 text-sm text-red-500 bg-red-500/10 rounded-xl border border-red-500/20 text-center">
-              {error}
+            <div className="mb-6 p-4 text-sm text-red-500 bg-red-500/10 rounded-xl border border-red-500/20 text-center space-y-3">
+              <p>{error}</p>
+              {error.toLowerCase().includes("guest") && (
+                <div>
+                  <Link
+                    href="/register"
+                    className="inline-block px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs transition-colors shadow-sm"
+                  >
+                    Register Free Account
+                  </Link>
+                </div>
+              )}
             </div>
           )}
 

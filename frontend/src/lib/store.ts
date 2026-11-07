@@ -2,8 +2,10 @@ import { create } from "zustand";
 
 interface User {
   id: string;
-  email: string;
+  email?: string | null;
+  name?: string | null;
   role: string;
+  is_guest?: boolean;
 }
 
 interface AuthState {

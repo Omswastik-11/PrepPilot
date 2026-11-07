@@ -438,6 +438,27 @@ export default function InterviewChat() {
                   </div>
                 </div>
                 
+                {user?.is_guest && (
+                  <div className="p-6 bg-gradient-to-r from-blue-600/15 via-indigo-600/15 to-purple-600/15 border border-blue-500/30 rounded-2xl text-center space-y-3">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 text-blue-400 text-xs font-semibold">
+                      <span>⚡</span>
+                      <span>Free Guest Trial Completed</span>
+                    </div>
+                    <h3 className="text-lg font-bold">Save your performance & practice unlimited interviews!</h3>
+                    <p className="text-sm text-[var(--muted-foreground)] max-w-md mx-auto">
+                      Guest interview data is temporary. Create a free account to track your strengths, weaknesses, and prepare for top tech interviews.
+                    </p>
+                    <div className="pt-1">
+                      <Link
+                        href="/register"
+                        className="inline-block px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20 text-sm"
+                      >
+                        Create Free Account
+                      </Link>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex gap-4 justify-center pt-4">
                   <Link href="/profile">
                     <button className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors shadow-lg shadow-blue-600/20">

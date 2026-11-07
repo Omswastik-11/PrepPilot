@@ -227,3 +227,32 @@ class TestInterviews:
         assert get_resp.status_code == 200
         q1_data = get_resp.json()["questions"][0]
         assert "answer" not in q1_data or q1_data["answer"] is None
+
+    @pytest.mark.asyncio
+    async def test_guest_trial_limit_enforced(self, client: AsyncClient, mock_ai_service):
+        """Guests are capped at 1 free interview trial."""
+        # 1. Guest login
+        guest_resp = await client.post("/api/auth/guest")
+        assert guest_resp.status_code == 201
+        tokens = guest_resp.json()
+        guest_token = tokens["access_token"]
+        
+        headers = {"Authorization": f"Bearer {guest_token}"}
+        
+        # 2. First interview should SUCCEED
+        first_resp = await client.post("/api/interviews", json={
+            "interview_type": "technical",
+            "difficulty": "medium",
+            "num_questions": 3
+        }, headers=headers)
+        assert first_resp.status_code == 201
+        
+        # 3. Second interview should be FORBIDDEN (403)
+        second_resp = await client.post("/api/interviews", json={
+            "interview_type": "technical",
+            "difficulty": "medium",
+            "num_questions": 3
+        }, headers=headers)
+        assert second_resp.status_code == 403
+        data = second_resp.json()
+        assert "Guest trial limit reached" in data["error"]["message"]

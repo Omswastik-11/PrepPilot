@@ -34,6 +34,13 @@ class InterviewRepository(BaseRepository[Interview]):
         )
         return result.scalar_one_or_none()
 
+    async def count_by_user(self, user_id: UUID) -> int:
+        """Count total interviews created by a user."""
+        result = await self.db.execute(
+            select(func.count(Interview.id)).where(Interview.user_id == user_id)
+        )
+        return result.scalar_one()
+
     async def list_by_user(
         self, user_id: UUID, status: Optional[str] = None, limit: int = 10, offset: int = 0
     ) -> tuple[list[Interview], int]:

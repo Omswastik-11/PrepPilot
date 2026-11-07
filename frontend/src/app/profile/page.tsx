@@ -161,13 +161,13 @@ export default function Profile() {
               
               <div className="flex flex-col items-center text-center">
                 <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-blue-500/20 mb-3">
-                  {profile?.name ? profile.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                  {profile?.name ? profile.name.charAt(0).toUpperCase() : (user?.email ? user.email.charAt(0).toUpperCase() : "G")}
                 </div>
                 <h1 className="text-lg font-bold text-[var(--foreground)]">
-                  {profile?.name || "Anonymous User"}
+                  {profile?.name || (user?.is_guest ? "Guest User" : "Anonymous User")}
                 </h1>
                 <p className="text-xs text-[var(--muted-foreground)] mb-3">
-                  @{user.email.split('@')[0]}
+                  @{user?.email ? user.email.split('@')[0] : "guest"}
                 </p>
                 <p className="text-xs text-[var(--muted-foreground)] mb-5 leading-relaxed">
                   {profile?.bio || "A candidate who is enthusiastic about coding and interview prep."}

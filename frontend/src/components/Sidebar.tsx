@@ -120,6 +120,24 @@ export function Sidebar() {
         )}
       </div>
 
+      {user?.is_guest && (
+        <div className="mx-1 mb-2 p-3 bg-gradient-to-br from-blue-600/15 via-indigo-600/15 to-purple-600/15 border border-blue-500/25 rounded-xl text-xs space-y-2">
+          <div className="flex items-center gap-1.5 font-semibold text-blue-500">
+            <span>⚡</span>
+            <span>Guest Trial (1 Interview)</span>
+          </div>
+          <p className="text-[var(--muted-foreground)] text-[11px] leading-snug">
+            Save your analytics and unlock unlimited practice.
+          </p>
+          <Link
+            href="/register"
+            className="block text-center py-1.5 px-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-xs transition-colors shadow-sm"
+          >
+            Create Free Account
+          </Link>
+        </div>
+      )}
+
       <div className="mt-auto border-t border-[var(--border)] pt-2 space-y-1">
         <Link href="/profile">
           <div className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-[var(--muted)] cursor-pointer">
@@ -138,7 +156,7 @@ export function Sidebar() {
           className="flex items-center gap-3 rounded-lg p-3 transition-colors hover:bg-red-500/10 hover:text-red-500 cursor-pointer text-[var(--muted-foreground)]"
         >
           <LogOut className="h-4 w-4" />
-          <span>Log out {user?.email}</span>
+          <span>Log out {user?.is_guest ? "(Guest)" : user?.email ? `(${user.email})` : ""}</span>
         </div>
       </div>
     </div>

@@ -19,6 +19,7 @@ from app.models.question import Question, Answer
 from app.repositories.interview_repository import InterviewRepository
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.answer_repository import AnswerRepository
+from app.repositories.user_repository import UserRepository
 from app.schemas.interview import InterviewCreate
 from app.schemas.question import AnswerCreate
 from app.services.ai.service import AIService
@@ -33,11 +34,21 @@ class InterviewService:
         self.interview_repo = InterviewRepository(db)
         self.question_repo = QuestionRepository(db)
         self.answer_repo = AnswerRepository(db)
+        self.user_repo = UserRepository(db)
 
     async def create_interview(self, user_id: UUID, data: InterviewCreate) -> Interview:
         """
         Creates a new interview and generates the FIRST question adaptively.
         """
+        # Check if guest user has reached the trial limit (1 free interview)
+        user = await self.user_repo.get_by_id(user_id)
+        if user and user.is_guest:
+            existing_count = await self.interview_repo.count_by_user(user_id)
+            if existing_count >= 1:
+                raise AuthorizationError(
+                    "Guest trial limit reached. Please create a free account to unlock unlimited mock interviews and save your progress."
+                )
+
         # 1. Persist Interview
         # Auto-generate title (F3.1)
         parts = []

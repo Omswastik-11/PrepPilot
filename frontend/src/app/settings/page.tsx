@@ -6,6 +6,7 @@ import { useAuthStore, useToastStore } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import { Settings, Save, Loader2, Download, Moon, Sun, Monitor, Command, Keyboard } from "lucide-react";
+import Link from "next/link";
 
 const TONE_OPTIONS = [
   { value: "professional", label: "Professional", description: "Standard, objective, and structured evaluation." },
@@ -212,9 +213,19 @@ export default function SettingsPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-center py-2 border-b border-[var(--border)]">
                 <div>
-                  <div className="font-medium">Email Address</div>
-                  <div className="text-sm text-[var(--muted-foreground)]">{user.email}</div>
+                  <div className="font-medium">Account Status</div>
+                  <div className="text-sm text-[var(--muted-foreground)]">
+                    {user?.is_guest ? "Guest Account (1 free mock interview)" : (user?.email || "Registered")}
+                  </div>
                 </div>
+                {user?.is_guest && (
+                  <Link
+                    href="/register"
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg text-xs transition-colors shadow-sm"
+                  >
+                    Upgrade to Full Account
+                  </Link>
+                )}
               </div>
               
               <div className="flex justify-between items-center py-2 border-b border-[var(--border)]">
