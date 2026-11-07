@@ -89,12 +89,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
-    # Rate Limiting
+    # Rate Limiting & Abuse Prevention
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_AUTH_PER_MINUTE: int = 5
     RATE_LIMIT_AI_GUEST_PER_MINUTE: int = 5
     RATE_LIMIT_AI_USER_PER_MINUTE: int = 20
     RATE_LIMIT_DEFAULT_PER_MINUTE: int = 60
+    GUEST_COOLDOWN_HOURS: int = 24
 
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env", "../.env"),

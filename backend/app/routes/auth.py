@@ -21,16 +21,21 @@ ENDPOINTS:
 import logging
 from typing import Optional
 from urllib.parse import quote
+from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
 
 from app.config import get_settings
-
+from app.database import get_db
 from app.dependencies import get_auth_service, get_current_user
+from app.exceptions import AuthorizationError
+from app.middleware.rate_limit import get_client_ip
 from app.models.user import User
+from app.repositories.interview_repository import InterviewRepository
 from app.schemas.auth import TokenPair, RefreshTokenRequest
 from app.schemas.user import UserCreate, UserResponse
 from app.services.auth_service import AuthService
@@ -119,14 +124,30 @@ async def get_me(
 
 @router.post("/guest", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
 async def guest_login(
+    request: Request,
     auth_service: AuthService = Depends(get_auth_service),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Create a guest user and return tokens.
 
-    Guest users can access all non-admin features without registering.
-    Their data is persisted and associated with a unique user ID.
+    Guarded by IP cooldown check: Prevents logging out and logging back in as a new guest.
     """
+    client_ip = get_client_ip(request)
+    settings = get_settings()
+    interview_repo = InterviewRepository(db)
+    recent = await interview_repo.get_latest_guest_interview_by_ip(
+        client_ip=client_ip,
+        cooldown_hours=settings.GUEST_COOLDOWN_HOURS,
+    )
+    if recent:
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        remaining_sec = max(0, int((recent.created_at + timedelta(hours=settings.GUEST_COOLDOWN_HOURS) - now).total_seconds()))
+        remaining_hours = max(1, (remaining_sec + 3599) // 3600)
+        raise AuthorizationError(
+            f"A free guest trial was already used from your network recently ({remaining_hours}h cooldown remaining). Please sign in or create a free account!"
+        )
+
     _user, tokens = await auth_service.guest_login()
     return tokens
 

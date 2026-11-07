@@ -7,9 +7,10 @@ Thin HTTP adapters delegating to InterviewService.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, Request
 
 from app.dependencies import get_interview_service, get_current_user
+from app.middleware.rate_limit import get_client_ip
 from app.models.user import User
 from app.schemas.interview import (
     InterviewCreate,
@@ -27,11 +28,13 @@ router = APIRouter()
 @router.post("", response_model=InterviewResponse, status_code=status.HTTP_201_CREATED)
 async def create_interview(
     data: InterviewCreate,
+    request: Request,
     current_user: User = Depends(get_current_user),
     interview_service: InterviewService = Depends(get_interview_service),
 ):
     """Start a new interview."""
-    interview = await interview_service.create_interview(current_user.id, data)
+    client_ip = get_client_ip(request)
+    interview = await interview_service.create_interview(current_user.id, data, client_ip=client_ip)
     return interview
 
 

@@ -6,7 +6,7 @@ Integrates AIService for generation/evaluation.
 Owns transaction boundaries.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -36,18 +36,39 @@ class InterviewService:
         self.answer_repo = AnswerRepository(db)
         self.user_repo = UserRepository(db)
 
-    async def create_interview(self, user_id: UUID, data: InterviewCreate) -> Interview:
+    async def create_interview(
+        self, user_id: UUID, data: InterviewCreate, client_ip: Optional[str] = None
+    ) -> Interview:
         """
         Creates a new interview and generates the FIRST question adaptively.
         """
-        # Check if guest user has reached the trial limit (1 free interview)
+        # Check if guest user has reached the trial limit (1 free interview) or IP cooldown
         user = await self.user_repo.get_by_id(user_id)
         if user and user.is_guest:
+            # 1. User-level limit
             existing_count = await self.interview_repo.count_by_user(user_id)
             if existing_count >= 1:
                 raise AuthorizationError(
                     "Guest trial limit reached. Please create a free account to unlock unlimited mock interviews and save your progress."
                 )
+
+            # 2. IP-level cooldown (prevents logout/re-login evasion)
+            if client_ip:
+                from app.config import get_settings
+                settings = get_settings()
+                recent_interview = await self.interview_repo.get_latest_guest_interview_by_ip(
+                    client_ip=client_ip,
+                    cooldown_hours=settings.GUEST_COOLDOWN_HOURS,
+                )
+                if recent_interview:
+                    now = datetime.now(timezone.utc).replace(tzinfo=None)
+                    created = recent_interview.created_at
+                    remaining_sec = max(0, int((created + timedelta(hours=settings.GUEST_COOLDOWN_HOURS) - now).total_seconds()))
+                    remaining_hours = max(1, (remaining_sec + 3599) // 3600)
+                    raise AuthorizationError(
+                        f"A free guest trial has already been completed from this IP within the last {settings.GUEST_COOLDOWN_HOURS} hours "
+                        f"({remaining_hours}h cooldown remaining). Please register a free account to practice without limits!"
+                    )
 
         # 1. Persist Interview
         # Auto-generate title (F3.1)
@@ -57,7 +78,11 @@ class InterviewService:
         parts.append(f"{data.interview_type.replace('_', ' ').title()}")
         title = " — ".join(parts)
         
-        metadata = {"title": title}
+        metadata = {
+            "title": title,
+            "client_ip": client_ip,
+            "is_guest": True if (user and user.is_guest) else False,
+        }
         if data.role:
             metadata["role"] = data.role
 
