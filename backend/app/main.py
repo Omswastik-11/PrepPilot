@@ -170,7 +170,8 @@ async def root():
 @app.get("/health", tags=["Health"])
 @app.get("/healthz", tags=["Health"])
 async def health_check():
-    """Detailed health check for monitoring."""
+    """Detailed health check for monitoring and load balancers."""
+    import os
     from app.database import async_session
     from sqlalchemy import text
     try:
@@ -182,5 +183,7 @@ async def health_check():
     return {
         "status": "healthy" if db_status == "connected" else "degraded",
         "database": db_status,
+        "workers": int(os.environ.get("WORKERS", 2)),
+        "rate_limiting": settings.RATE_LIMIT_ENABLED,
         "version": "0.2.0",
     }
