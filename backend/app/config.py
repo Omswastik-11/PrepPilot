@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
 
+    # Rate Limiting
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_AUTH_PER_MINUTE: int = 5
+    RATE_LIMIT_AI_GUEST_PER_MINUTE: int = 5
+    RATE_LIMIT_AI_USER_PER_MINUTE: int = 20
+    RATE_LIMIT_DEFAULT_PER_MINUTE: int = 60
+
     model_config = SettingsConfigDict(
         env_file=(".env", "backend/.env", "../.env"),
         env_file_encoding="utf-8",

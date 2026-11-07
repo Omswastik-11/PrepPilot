@@ -124,8 +124,10 @@ async def ai_service_handler(request: Request, exc: AIServiceError) -> JSONRespo
 
 
 # ---------------------------------------------------------------------------
-# CORS Middleware
+# Middlewares
 # ---------------------------------------------------------------------------
+
+from app.middleware.rate_limit import RateLimitMiddleware
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,6 +136,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(RateLimitMiddleware)
 
 
 # ---------------------------------------------------------------------------
